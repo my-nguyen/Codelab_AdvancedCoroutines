@@ -15,6 +15,7 @@ retrofit = "2.11.0"
 converter = "2.11.0"
 fragmentKtx = "1.8.5"
 glide = "4.16.0"
+livedata = "2.8.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,6 +34,7 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 converter = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "converter" }
 glide = { group = "com.github.bumptech.glide", name = "glide", version.ref = "glide" }
 fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragmentKtx" }
+livedata = { group = "androidx.lifecycle", name = "lifecycle-livedata-ktx", version.ref = "livedata" }
 
 [bundles]
 room = ["room-ktx", "room-paging", "room-runtime"]

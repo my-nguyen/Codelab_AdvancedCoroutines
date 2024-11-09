@@ -26,7 +26,7 @@ class NetworkService {
     }
 
     suspend fun customPlantSortOrder(): List<String> = withContext(Dispatchers.Default) {
-        sunflowerService.getAllPlants().map { plant -> plant.plantId }
+        sunflowerService.getCustomPlantSortOrder().map { plant -> plant.plantId }
     }
 }
 

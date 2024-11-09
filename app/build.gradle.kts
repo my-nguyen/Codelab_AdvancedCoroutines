@@ -56,4 +56,5 @@ dependencies {
     implementation(libs.converter)
     implementation(libs.fragment.ktx)
     implementation(libs.glide)
+    implementation(libs.livedata)
 }
