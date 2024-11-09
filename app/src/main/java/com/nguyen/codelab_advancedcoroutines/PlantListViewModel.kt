@@ -8,15 +8,17 @@ import androidx.lifecycle.switchMap
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 /**
  * The [ViewModel] for fetching a list of [Plant]s.
  */
-class PlantListViewModel internal constructor(
-    private val plantRepository: PlantRepository
-) : ViewModel() {
+class PlantListViewModel internal constructor(private val plantRepository: PlantRepository) : ViewModel() {
 
     /**
      * Request a snackbar to display a string.
@@ -47,17 +49,6 @@ class PlantListViewModel internal constructor(
      */
     private val growZone = MutableLiveData<GrowZone>(NoGrowZone)
 
-    /**
-     * A list of plants that updates based on the current filter.
-     */
-    val plants: LiveData<List<Plant>> = growZone.switchMap { growZone ->
-        if (growZone == NoGrowZone) {
-            plantRepository.plants
-        } else {
-            plantRepository.getPlantsWithGrowZone(growZone)
-        }
-    }
-
     // This defines a new MutableStateFlow with an initial value of NoGrowZone. This is a special
     // kind of Flow value holder that holds only the last value it was given. It's a thread-safe
     // concurrency primitive, so you can write to it from multiple threads at the same time (and
@@ -78,11 +69,33 @@ class PlantListViewModel internal constructor(
     }.asLiveData()
 
     init {
-        // When creating a new ViewModel, clear the grow zone and perform any related udpates
         clearGrowZoneNumber()
 
-        // fetch the full plant list
-        launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
+        // mapLatest will apply this map function for each value. However, unlike regular map, it'll
+        // launch a new coroutine for each call to the map transform. Then, if a new value is emitted
+        // by the growZoneChannel before the previous coroutine completes, it'll cancel it before
+        // starting a new one.
+        growZoneFlow.mapLatest { growZone ->
+            _spinner.value = true
+            if (growZone == NoGrowZone) {
+                plantRepository.tryUpdateRecentPlantsCache()
+            } else {
+                plantRepository.tryUpdateRecentPlantsForGrowZoneCache(growZone)
+            }
+        }
+            // onEach will be called every time the flow above it emits a value. Here we're using it
+            // to reset the spinner after processing is complete.
+            .onEach {  _spinner.value = false }
+            // The catch operator will capture any exceptions thrown above it in the flow. It can
+            // emit a new value to the flow like an error state, rethrow the exception back into the
+            // flow, or perform work like we're doing here.
+            // When there's an error we're just telling our _snackbar to display the error message
+            .catch { throwable ->  _snackbar.value = throwable.message  }
+            // use the launchIn operator to collect the flow inside our ViewModel
+            // The operator launchIn creates a new coroutine and collects every value from the flow.
+            // It'll launch in the CoroutineScope provided–in this case, the viewModelScope. This is
+            // great because it means when this ViewModel gets cleared, the collection will be cancelled.
+            .launchIn(viewModelScope)
     }
 
     /**
@@ -94,9 +107,6 @@ class PlantListViewModel internal constructor(
     fun setGrowZoneNumber(num: Int) {
         growZone.value = GrowZone(num)
         growZoneFlow.value = GrowZone(num)
-
-        launchDataLoad {
-            plantRepository.tryUpdateRecentPlantsForGrowZoneCache(GrowZone(num)) }
     }
 
     /**
@@ -108,10 +118,6 @@ class PlantListViewModel internal constructor(
     fun clearGrowZoneNumber() {
         growZone.value = NoGrowZone
         growZoneFlow.value = NoGrowZone
-
-        launchDataLoad {
-            plantRepository.tryUpdateRecentPlantsCache()
-        }
     }
 
     /**
