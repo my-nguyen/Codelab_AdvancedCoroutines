@@ -1,12 +1,15 @@
 package com.nguyen.codelab_advancedcoroutines
 
+import androidx.annotation.AnyThread
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.liveData
 import androidx.lifecycle.map
+import androidx.lifecycle.switchMap
 import com.nguyen.codelab_advancedcoroutines.utils.CacheOnSuccess
 import com.nguyen.codelab_advancedcoroutines.utils.ComparablePair
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Repository module for handling data operations.
@@ -39,13 +42,17 @@ class PlantRepository private constructor(
      * Fetch a list of [Plant]s from the database that matches a given [GrowZone].
      * Returns a LiveData-wrapped List of Plants.
      */
-    fun getPlantsWithGrowZone(growZone: GrowZone) = liveData {
-        val plantsGrowZoneLiveData = plantDao.getPlantsWithGrowZoneNumber(growZone.number)
-        val customSortOrder = plantsListSortOrderCache.getOrAwait()
-        emitSource(plantsGrowZoneLiveData.map { plantList ->
-            plantList.applySort(customSortOrder)
-        })
-    }
+    fun getPlantsWithGrowZone(growZone: GrowZone) =
+        // once the custom sort order is received from the network, it can then be used with the new
+        // main-safe applyMainSafeSort. This result is then emitted to the switchMap as the new value
+        // returned by getPlantsWithGrowZone
+        plantDao.getPlantsWithGrowZoneNumber(growZone.number)
+            .switchMap { plantList ->
+                liveData {
+                    val customSortOrder = plantsListSortOrderCache.getOrAwait()
+                    emit(plantList.applyMainSafeSort(customSortOrder))
+                }
+            }
 
     /**
      * Returns true if we should make a network request.
@@ -104,6 +111,12 @@ class PlantRepository private constructor(
             ComparablePair(positionForItem, plant.name)
         }
     }
+
+    @AnyThread
+    suspend fun List<Plant>.applyMainSafeSort(customSortOrder: List<String>) =
+        withContext(defaultDispatcher) {
+            this@applyMainSafeSort.applySort(customSortOrder)
+        }
 
     companion object {
 
