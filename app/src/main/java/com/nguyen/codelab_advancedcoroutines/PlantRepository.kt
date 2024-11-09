@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.withContext
 
@@ -61,11 +62,19 @@ class PlantRepository private constructor(
                 }
             }
 
-    /*val plantsFlow: Flow<List<Plant>>
-        get() = plantDao.getPlantsFlow()*/
-
-    fun getPlantsWithGrowZoneFlow(growZoneNumber: GrowZone): Flow<List<Plant>> {
-        return plantDao.getPlantsWithGrowZoneNumberFlow(growZoneNumber.number)
+    fun getPlantsWithGrowZoneFlow(growZone: GrowZone): Flow<List<Plant>> {
+        return plantDao.getPlantsWithGrowZoneNumberFlow(growZone.number)
+            .map { plantList ->
+                // By relying on regular suspend functions to handle the async work, this map
+                // operation is main-safe even though it combines two async operations
+                // As each result from the database is returned, we'll get the cached sort order–and
+                // if it's not ready yet, it will wait on the async network request. Then once we
+                // have the sort order, it's safe to call applyMainSafeSort, which will run the sort
+                // on the default dispatcher
+                val sortOrderFromNetwork = plantsListSortOrderCache.getOrAwait()
+                val nextValue = plantList.applyMainSafeSort(sortOrderFromNetwork)
+                nextValue
+            }
     }
 
     /**
