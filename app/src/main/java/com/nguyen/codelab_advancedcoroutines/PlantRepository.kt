@@ -9,7 +9,13 @@ import com.nguyen.codelab_advancedcoroutines.utils.CacheOnSuccess
 import com.nguyen.codelab_advancedcoroutines.utils.ComparablePair
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.withContext
 
 /**
@@ -55,8 +61,8 @@ class PlantRepository private constructor(
                 }
             }
 
-    val plantsFlow: Flow<List<Plant>>
-        get() = plantDao.getPlantsFlow()
+    /*val plantsFlow: Flow<List<Plant>>
+        get() = plantDao.getPlantsFlow()*/
 
     fun getPlantsWithGrowZoneFlow(growZoneNumber: GrowZone): Flow<List<Plant>> {
         return plantDao.getPlantsWithGrowZoneNumberFlow(growZoneNumber.number)
@@ -125,6 +131,43 @@ class PlantRepository private constructor(
         withContext(defaultDispatcher) {
             this@applyMainSafeSort.applySort(customSortOrder)
         }
+
+    // a Flow that, when collected, will call getOrAwait and emit the sort order
+    // private val customSortFlow = flow { emit(plantsListSortOrderCache.getOrAwait()) }
+    private val customSortFlow = plantsListSortOrderCache::getOrAwait.asFlow()
+
+    /*// This flow uses the following threads already:
+    // * plantService.customPlantSortOrder runs on a Retrofit thread (it calls Call.enqueue)
+    // * getPlantsFlow will run queries on a Room Executor
+    // * applySort will run on the collecting dispatcher (in this case Dispatchers.Main)
+    // So if all we were doing was calling suspend functions in Retrofit and using Room flows, we
+    // wouldn't need to complicate this code with main-safety concerns.
+    val plantsFlow: Flow<List<Plant>>
+        get() = plantDao.getPlantsFlow()
+            // When the result of customSortFlow is available, this will combine it with the latest
+            // value from getPlantsFlow() above.  Thus, as long as both `plants` and `sortOrder`
+            // have an initial value (their flow has emitted at least one value), any change to
+            // either `plants` or `sortOrder`  will call `plants.applySort(sortOrder)`.
+            .combine(customSortFlow) { plants, sortOrder ->
+                plants.applySort(sortOrder)
+            }*/
+
+    // However, as our data set grows in size, the call to applySort may become slow enough to block
+    // the main thread. Flow offers a declarative API called flowOn to control which thread the flow
+    // runs on.
+    // Calling flowOn has two important effects on how the code executes:
+    // * Launch a new coroutine on the defaultDispatcher (in this case, Dispatchers.Default) to run
+    //   and collect the flow before the call to flowOn.
+    // * Introduces a buffer to send results from the new coroutine to later calls.
+    // * Emit the values from that buffer into the Flow after flowOn. In this case, that's asLiveData
+    //   in the ViewModel
+    val plantsFlow: Flow<List<Plant>>
+        get() = plantDao.getPlantsFlow()
+            .combine(customSortFlow) { plants, sortOrder ->
+                plants.applySort(sortOrder)
+            }
+            .flowOn(defaultDispatcher)
+            .conflate()
 
     companion object {
 
